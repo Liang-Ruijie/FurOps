@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FurOps · 临时验收界面</title>
+<style>
+  :root{--paper:#faf8f5;--card:#fdfbfa;--line:#d1d1cd;--graphite:#72706b;--ink:#27251e;--teal:#016a71}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,system-ui,-apple-system,'PingFang SC','Microsoft Yahei',sans-serif;padding:24px;max-width:720px;margin:0 auto;line-height:1.6}
+  h1{font-size:22px;font-weight:500}
+  .todo{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:8px;display:flex;gap:10px;align-items:center;cursor:pointer}
+  .todo:hover{border-color:var(--graphite)}
+  .todo .p{width:24px;height:24px;border:1px solid var(--ink);border-radius:50%;display:grid;place-items:center;font-size:12px;flex:none}
+  .todo .grow{flex:1;min-width:0}
+  .todo b{display:block;font-weight:500}
+  .todo small{color:var(--graphite)}
+  .todo.bound{border-color:var(--teal);box-shadow:0 0 0 2px var(--teal)}
+  .composer{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:12px;margin-top:16px;position:sticky;bottom:12px}
+  .bind{font-size:13px;color:var(--graphite);margin-bottom:8px;display:flex;justify-content:space-between}
+  .bind b{color:var(--ink)}
+  .bind a{color:var(--teal);text-decoration:none;cursor:pointer}
+  .row{display:flex;gap:8px}
+  input{flex:1;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--paper);font-size:15px}
+  button{border:1px solid var(--ink);background:var(--ink);color:var(--paper);border-radius:12px;padding:10px 16px;font-size:14px;cursor:pointer}
+  .muted{color:var(--graphite);font-size:13px}
+</style>
+</head>
+<body>
+  <h1>FurOps · 奏章（临时验收界面）</h1>
+  <p class="muted">点待办绑定 → 输入 → 提交；点「× 自由记录」解除绑定。本界面阶段 3 废弃。</p>
+
+  <div id="todos"></div>
+
+  <div class="composer">
+    <div class="bind">
+      <span>正在处理：<b id="bind-label">（自由输入）</b></span>
+      <a id="unbind" onclick="unbind()">× 自由记录</a>
+    </div>
+    <div class="row">
+      <input id="text" placeholder="按住说话 / 打字…">
+      <button onclick="submit()">提交</button>
+    </div>
+  </div>
+
+<script>
+let bound = null; // { kind: 'cat', catId, label } | { kind: 'item', targetItemId, label } | null
+
+function render(todos) {
+  const el = document.getElementById('todos');
+  if (!todos.length) { el.innerHTML = '<p class="muted">（无待办）</p>'; return; }
+  el.innerHTML = todos.map(t => {
+    const bindable = (t.type === 'weight_drop' && t.catId) || (t.type === 'needs_input' && t.targetItemId);
+    return `<div class="todo${bound && ((t.type==='weight_drop'&&bound.catId===t.catId)||(t.type==='needs_input'&&bound.targetItemId===t.targetItemId)) ? ' bound' : ''}" ${bindable ? `onclick="bind(this)" data-todo='${JSON.stringify(t)}'` : ''}>
+      <span class="p">${t.priority}</span>
+      <span class="grow"><b>${esc(t.label)}</b><small>${esc(t.detail)}</small></span>
+    </div>`;
+  }).join('');
+}
+
+function bind(div) {
+  const t = JSON.parse(div.dataset.todo);
+  if (t.type === 'weight_drop' && t.catId) bound = { kind: 'cat', catId: t.catId, label: t.label };
+  else if (t.type === 'needs_input' && t.targetItemId) bound = { kind: 'item', targetItemId: t.targetItemId, label: t.label };
+  else bound = null;
+  update();
+}
+
+function unbind() { bound = null; update(); }
+
+function update() {
+  document.getElementById('bind-label').textContent = bound ? bound.label : '（自由输入）';
+}
+
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/v1/todos');
+    const j = await r.json();
+    render(j.todos || []);
+  } catch (e) { console.error(e); }
+}
+
+async function submit() {
+  const text = document.getElementById('text').value.trim();
+  if (!text) return;
+  const body = { text };
+  if (bound?.kind === 'cat') body.boundCatId = bound.catId;
+  if (bound?.kind === 'item') body.targetItemId = bound.targetItemId;
+  try {
+    await fetch('/api/v1/input', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    document.getElementById('text').value = '';
+  } catch (e) { console.error(e); }
+  await refresh();
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
